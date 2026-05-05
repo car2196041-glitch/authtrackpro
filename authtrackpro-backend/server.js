@@ -161,6 +161,46 @@ app.post('/authorizations', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
+app.post("/authorizations", async (req, res) => {
+  try {
+    const {
+      patient_name,
+      payer,
+      procedure_name,
+      cpt_code,
+      status,
+      priority,
+      submitted_date,
+      due_date,
+      assigned_to,
+      notes
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO authorizations 
+      (patient_name, payer, procedure_name, cpt_code, status, priority, submitted_date, due_date, assigned_to, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      RETURNING *`,
+      [
+        patient_name,
+        payer,
+        procedure_name,
+        cpt_code,
+        status,
+        priority,
+        submitted_date || null,
+        due_date || null,
+        assigned_to,
+        notes
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Could not create authorization" });
+  }
+});
 app.listen(PORT, () => {
   console.log(`AuthTrackPro backend running on port ${PORT}`);
 });
