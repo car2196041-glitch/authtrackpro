@@ -48,9 +48,10 @@ function App() {
     });
 
     if (!res.ok) {
-      alert("Authorization could not be saved. Backend POST route may need to be added.");
-      return;
-    }
+  const errorText = await res.text();
+  alert(`Authorization could not be saved: ${errorText}`);
+  return;
+}
 
     setForm({
       patient_name: "",
