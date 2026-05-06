@@ -142,14 +142,14 @@ app.post('/upload-csv', upload.single('file'), async (req, res) => {
 
 app.post('/authorizations', async (req, res) => {
   try {
-    const { patient_name, dob, insurance, procedure_code, status, request_date, auth_number, notes } = req.body;
+    const { patient_name, insurance, procedure_code, status, request_date, auth_number, notes } = req.body;
 
     const result = await pool.query(
       `INSERT INTO authorizations 
-      (patient_name, dob, insurance, procedure_code, status, request_date, auth_number, notes)
+      (patient_name, insurance, procedure_code, status, request_date, auth_number, notes)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *`,
-      [patient_name, dob, insurance, procedure_code, status, request_date, auth_number, notes]
+      [patient_name, insurance, procedure_code, status, request_date, auth_number, notes]
     );
 
     res.json(result.rows[0]);
