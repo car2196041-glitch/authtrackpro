@@ -142,19 +142,41 @@ app.post('/upload-csv', upload.single('file'), async (req, res) => {
 
 app.post('/authorizations', async (req, res) => {
   try {
-    const { patient_name, insurance, procedure_code, status, request_date, auth_number, notes } = req.body;
+    const {
+      patient_name,
+      dob,
+      payer,
+      procedure_name,
+      cpt_code,
+      status,
+      priority,
+      submitted_date,
+      auth_number,
+      notes
+    } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO authorizations 
-      (patient_name, insurance, procedure_code, status, request_date, auth_number, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO authorizations
+      (patient_name, dob, payer, procedure_name, cpt_code, status, priority, submitted_date, auth_number, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING *`,
-      [patient_name, insurance, procedure_code, status, request_date, auth_number, notes]
+      [
+        patient_name,
+        dob || null,
+        payer,
+        procedure_name,
+        cpt_code,
+        status || 'Pending',
+        priority || 'Normal',
+        submitted_date || new Date(),
+        auth_number || null,
+        notes || null
+      ]
     );
 
-    res.json(result.rows[0]);
+    res.status(201).json(result.rows[0]);
   } catch (error) {
-    console.error(error);
+    console.error('Create authorization error:', error);
     res.status(500).json({ error: 'Create authorization error' });
   }
 });
