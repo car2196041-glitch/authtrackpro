@@ -7,10 +7,17 @@ const jwt = require("jsonwebtoken");
 
 const app = express();
 
-app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:5174"],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://authtrackpro.com",
+      "https://www.authtrackpro.com",
+    ],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
 function authenticateToken(req, res, next) {
