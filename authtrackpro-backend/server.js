@@ -136,45 +136,108 @@ app.delete('/authorizations/:id', authenticateToken, async (req, res) => {
   }
 });
 
-const multer = require('multer');
-const csv = require('csv-parser');
-const fs = require('fs');
+const multer = require("multer");
+const csv = require("csv-parser");
+const { Readable } = require("stream");
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 
-// CSV Upload endpoint
-app.post('/upload-csv', upload.single('file'), async (req, res) => {
-  const results = [];
+// CSV Import endpoint
+// TEST ROUTE
+console.log("=== IMPORT ROUTES LOADED ===");
 
-  fs.createReadStream(req.file.path)
-    .pipe(csv())
-    .on('data', (data) => results.push(data))
-    .on('end', async () => {
-      try {
-        for (const row of results) {
-          await pool.query(
-            `INSERT INTO authorizations
-            (patient_name, dob, insurance, procedure_code, status, request_date, auth_number, notes)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-            [
-              row.patient_name,
-              row.dob,
-              row.insurance,
-              row.procedure_code,
-              row.status,
-              row.request_date,
-              row.auth_number,
-              row.notes
-            ]
-          );
+app.post("/test-import-route", (req, res) => {
+  res.json({ message: "POST route works" });
+});
+
+// CSV Import endpoint
+app.post("/authorizations/import", authenticateToken, upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No CSV file uploaded" });
+    }
+
+    const results = [];
+    const stream = Readable.from(req.file.buffer.toString());
+
+    stream
+      .pipe(csv())
+      .on("data", (row) => {
+        results.push(row);
+      })
+      .on("end", async () => {
+        try {
+          let importedCount = 0;
+
+          for (const row of results) {
+            const patient_name = row.patient_name || row.Patient || row.patient || "";
+            const dob = row.dob || row.DOB || null;
+            const payer = row.payer || row.Payer || row.insurance || "";
+            const procedure_name = row.procedure_name || row.Procedure || row.procedure || "";
+            const cpt_code = row.cpt_code || row.CPT || row.procedure_code || "";
+            const status = row.status || row.Status || "Pending";
+            const priority = row.priority || row.Priority || "Normal";
+            const submitted_date = row.submitted_date || row.request_date || null;
+            const due_date = row.due_date || row.DueDate || null;
+            const assigned_to = row.assigned_to || row.AssignedTo || null;
+            const auth_number = row.auth_number || row.AuthNumber || null;
+            const notes = row.notes || row.Notes || null;
+
+            if (!patient_name || !payer || !procedure_name) {
+              continue;
+            }
+
+            await pool.query(
+              `INSERT INTO authorizations
+              (
+                patient_name,
+                dob,
+                payer,
+                procedure_name,
+                cpt_code,
+                status,
+                priority,
+                submitted_date,
+                due_date,
+                assigned_to,
+                auth_number,
+                notes,
+                user_id
+              )
+              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              [
+                patient_name,
+                dob,
+                payer,
+                procedure_name,
+                cpt_code,
+                status,
+                priority,
+                submitted_date,
+                due_date,
+                assigned_to,
+                auth_number,
+                notes,
+                req.user.userId,
+              ]
+            );
+
+            importedCount++;
+          }
+
+          res.json({
+            message: "CSV imported successfully",
+            importedCount,
+          });
+        } catch (error) {
+          console.error("CSV import database error:", error);
+          res.status(500).json({ error: "Failed to import CSV records" });
         }
-
-        res.json({ message: 'CSV uploaded successfully', count: results.length });
-      } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'CSV upload failed' });
-      }
-    });
+      });
+  } catch (error) {
+    console.error("CSV import error:", error);
+    res.status(500).json({ error: "CSV import failed" });
+  }
 });
 
 app.post("/authorizations", authenticateToken, async (req, res) => {
