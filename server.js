@@ -144,12 +144,13 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // CSV Import endpoint
 // TEST ROUTE
+console.log("=== IMPORT ROUTES LOADED ===");
+
 app.post("/test-import-route", (req, res) => {
   res.json({ message: "POST route works" });
 });
 
 // CSV Import endpoint
-app.post("/authorizations/import", authenticateToken, upload.single("file"), async (req, res) => {
 app.post("/authorizations/import", authenticateToken, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
