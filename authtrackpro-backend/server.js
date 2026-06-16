@@ -38,7 +38,7 @@ async function createAuditLogsTable() {
   }
 }
 
-createAuditLogsTable();
+createAuditLogsTable();x
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -297,6 +297,18 @@ app.post("/authorizations", authenticateToken, async (req, res) => {
         req.user.userId
       ]
     );
+
+    await pool.query(
+  `INSERT INTO audit_logs
+   (user_id, authorization_id, action, details)
+   VALUES ($1, $2, $3, $4)`,
+  [
+    req.user.userId,
+    result.rows[0].id,
+    "Authorization Created",
+    `${patient_name} - ${procedure_name}`
+  ]
+);
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
