@@ -19,7 +19,26 @@ app.use(
 );
 
 app.use(express.json());
+async function createAuditLogsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        authorization_id INTEGER,
+        action VARCHAR(100) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
+    console.log("Audit logs table ready");
+  } catch (error) {
+    console.error("Error creating audit_logs table:", error);
+  }
+}
+
+createAuditLogsTable();
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
