@@ -38,7 +38,7 @@ async function createAuditLogsTable() {
   }
 }
 
-createAuditLogsTable();x
+createAuditLogsTable();
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
