@@ -310,6 +310,8 @@ app.post("/authorizations", authenticateToken, async (req, res) => {
   ]
 );
 
+console.log("Audit log created:", result.rows[0].id);
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("Create authorization error:", err);
