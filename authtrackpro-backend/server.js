@@ -104,6 +104,28 @@ app.get('/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/audit-logs', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        al.id,
+        al.action,
+        al.details,
+        al.created_at,
+        u.email
+      FROM audit_logs al
+      LEFT JOIN users u ON al.user_id = u.id
+      ORDER BY al.created_at DESC
+      LIMIT 50
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Audit logs error:', error);
+    res.status(500).json({ error: 'Failed to load audit logs' });
+  }
+});
+
 // UPDATE authorization status/details
 app.patch('/authorizations/:id', authenticateToken, async (req, res) => {
   try {
