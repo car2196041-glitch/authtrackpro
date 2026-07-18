@@ -4,6 +4,7 @@ const pool = require("./db");
 require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { sendGraphEmail } = require("./services/graphEmailService");
 
 const app = express();
 
@@ -38,7 +39,36 @@ async function createAuditLogsTable() {
   }
 }
 
+async function createDemoRequestsTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS demo_requests (
+        id SERIAL PRIMARY KEY,
+        full_name VARCHAR(150) NOT NULL,
+        company VARCHAR(200) NOT NULL,
+        job_title VARCHAR(150),
+        email VARCHAR(200) NOT NULL,
+        phone VARCHAR(50),
+        providers INTEGER,
+        facilities INTEGER,
+        current_ehr VARCHAR(100),
+        biggest_challenge TEXT,
+        preferred_date DATE,
+        preferred_time TIME,
+        additional_comments TEXT,
+        status VARCHAR(50) DEFAULT 'New',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    console.log("Demo requests table ready");
+  } catch (error) {
+    console.error("Error creating demo_requests table:", error);
+  }
+}
+
 createAuditLogsTable();
+createDemoRequestsTable();
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -362,19 +392,37 @@ app.post("/auth/register", async (req, res) => {
     );
 
     const user = result.rows[0];
+    console.log("LOGIN USER FROM DB:", user);
 
     const token = jwt.sign(
   { userId: user.id, email: user.email },
   process.env.JWT_SECRET,
   { expiresIn: "7d" }
 );
-
-    res.json({
-      message: "User registered successfully",
-      user,
-      token
-    });
-
+try {
+  await sendGraphEmail({
+    to: user.email,
+    subject: "Welcome to AuthTrack Pro",
+    html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>Welcome to AuthTrack Pro</h2>
+        <p>Your account has been created successfully.</p>
+        <p>
+          You can now log in and begin managing prior authorizations,
+          deadlines, statuses, and workflow activity.
+        </p>
+        <p>Thank you for choosing AuthTrack Pro.</p>
+      </div>
+    `,
+  });
+} catch (emailError) {
+  console.error("Welcome email failed:", emailError.message);
+}
+res.json({
+  message: "User registered successfully",
+  user,
+  token
+});
   } catch (err) {
     console.error(err);
 
@@ -391,7 +439,7 @@ app.post("/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
+      "SELECT id, email, password, role FROM users WHERE email = $1",
       [email]
     );
 
@@ -411,25 +459,88 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-  {
-    userId: user.id,
-    email: user.email
-  },
-  process.env.JWT_SECRET,
-  { expiresIn: "7d" }
+{
+  userId: user.id,
+  email: user.email,
+  role: user.role || "user"
+},
+process.env.JWT_SECRET,
+{ expiresIn: "7d" }
 );
 
     res.json({
       token,
       user: {
   id: user.id,
-  email: user.email
+  email: user.email,
+  role: user.role || "user"
 }
     });
 
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.post("/demo-requests", async (req, res) => {
+  try {
+    const {
+      fullName,
+      company,
+      jobTitle,
+      email,
+      phone,
+      providers,
+      facilities,
+      currentEhr,
+      biggestChallenge,
+      preferredDate,
+      preferredTime,
+      additionalComments,
+    } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO demo_requests
+      (
+        full_name,
+        company,
+        job_title,
+        email,
+        phone,
+        providers,
+        facilities,
+        current_ehr,
+        biggest_challenge,
+        preferred_date,
+        preferred_time,
+        additional_comments
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *`,
+      [
+        fullName,
+        company,
+        jobTitle,
+        email,
+        phone,
+        providers || null,
+        facilities || null,
+        currentEhr,
+        biggestChallenge,
+        preferredDate || null,
+        preferredTime || null,
+        additionalComments,
+      ]
+    );
+
+    res.status(201).json({
+      message: "Demo request submitted successfully",
+      demoRequest: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error saving demo request:", error);
+    res.status(500).json({ error: "Failed to submit demo request" });
   }
 });
 
