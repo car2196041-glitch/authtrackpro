@@ -192,6 +192,39 @@ app.get(
   }
 );
 
+app.get(
+  "/organization/users",
+  authenticateToken,
+  requireRole("admin", "manager"),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `
+        SELECT
+          id,
+          first_name,
+          last_name,
+          email,
+          role,
+          active,
+          created_at
+        FROM users
+        WHERE organization_id = $1
+        ORDER BY last_name, first_name, email
+        `,
+        [req.user.organizationId]
+      );
+
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Organization users error:", error);
+      res.status(500).json({
+        error: "Failed to load organization users",
+      });
+    }
+  }
+);
+
 // UPDATE authorization status/details
 app.patch('/authorizations/:id', authenticateToken, async (req, res) => {
   try {
