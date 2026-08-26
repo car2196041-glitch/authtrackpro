@@ -139,9 +139,9 @@ app.get('/dashboard', authenticateToken, async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'Approved') AS approved,
         COUNT(*) FILTER (WHERE status = 'Denied') AS denied
       FROM authorizations
-      WHERE user_id = $1;
+      WHERE organization_id = $1;
       `,
-      [req.user.userId]
+      [req.user.organizationId]
     );
 
     const r = rows[0];
