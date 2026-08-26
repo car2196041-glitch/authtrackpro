@@ -87,6 +87,20 @@ function authenticateToken(req, res, next) {
   });
 }
 
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    const role = req.user?.role?.toLowerCase();
+
+    if (!role || !allowedRoles.includes(role)) {
+      return res.status(403).json({
+        error: "You do not have permission to access this resource.",
+      });
+    }
+
+    next();
+  };
+}
+
 app.get('/', (req, res) => {
   res.send('AuthTrackPro backend is running');
 });
@@ -94,9 +108,12 @@ app.get('/', (req, res) => {
 app.get('/authorizations', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM authorizations WHERE user_id = $1 ORDER BY id DESC',
-      [req.user.userId]
-    );
+  `SELECT *
+   FROM authorizations
+   WHERE organization_id = $1
+   ORDER BY id DESC`,
+  [req.user.organizationId]
+);
 
     res.json(result.rows);
   } catch (error) {
@@ -189,8 +206,8 @@ app.delete('/authorizations/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     const result = await pool.query(
-      'DELETE FROM authorizations WHERE id = $1 AND user_id = $2 RETURNING *',
-      [id, req.user.userId]
+      'DELETE FROM authorizations WHERE id = $1 AND organization_id = $2 RETURNING *',
+[id, req.user.organizationId]
     );
 
     if (result.rows.length === 0) {
@@ -222,94 +239,199 @@ app.post("/test-import-route", (req, res) => {
 });
 
 // CSV Import endpoint
-app.post("/authorizations/import", authenticateToken, upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No CSV file uploaded" });
-    }
+app.post(
+  "/authorizations/import",
+  authenticateToken,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: "No CSV file uploaded",
+        });
+      }
 
-    const results = [];
-    const stream = Readable.from(req.file.buffer.toString());
+      const results = [];
+      const stream = Readable.from(req.file.buffer.toString());
 
-    stream
-      .pipe(csv())
-      .on("data", (row) => {
-        results.push(row);
-      })
-      .on("end", async () => {
-        try {
-          let importedCount = 0;
+      stream
+        .pipe(csv())
 
-          for (const row of results) {
-            const patient_name = row.patient_name || row.Patient || row.patient || "";
-            const dob = row.dob || row.DOB || null;
-            const payer = row.payer || row.Payer || row.insurance || "";
-            const procedure_name = row.procedure_name || row.Procedure || row.procedure || "";
-            const cpt_code = row.cpt_code || row.CPT || row.procedure_code || "";
-            const status = row.status || row.Status || "Pending";
-            const priority = row.priority || row.Priority || "Normal";
-            const submitted_date = row.submitted_date || row.request_date || null;
-            const due_date = row.due_date || row.DueDate || null;
-            const assigned_to = row.assigned_to || row.AssignedTo || null;
-            const auth_number = row.auth_number || row.AuthNumber || null;
-            const notes = row.notes || row.Notes || null;
+        .on("data", (row) => {
+          results.push(row);
+        })
 
-            if (!patient_name || !payer || !procedure_name) {
-              continue;
+        .on("end", async () => {
+          try {
+            let importedCount = 0;
+            let failedCount = 0;
+            const importErrors = [];
+
+            for (const row of results) {
+              const patient_name =
+                row.patient_name || row.Patient || row.patient || "";
+
+              const dob =
+                row.dob || row.DOB || null;
+
+              const payer =
+                row.payer || row.Payer || row.insurance || "";
+
+              const procedure_name =
+                row.procedure_name ||
+                row.Procedure ||
+                row.procedure ||
+                "";
+
+              const cpt_code =
+                row.cpt_code ||
+                row.CPT ||
+                row.procedure_code ||
+                "";
+
+              const status =
+                row.status ||
+                row.Status ||
+                "Pending";
+
+              const priority =
+                row.priority ||
+                row.Priority ||
+                "Normal";
+
+              const submitted_date =
+                row.submitted_date ||
+                row.request_date ||
+                null;
+
+              const due_date =
+                row.due_date ||
+                row.DueDate ||
+                null;
+
+              const assigned_to =
+                row.assigned_to ||
+                row.AssignedTo ||
+                null;
+
+              const auth_number =
+                row.auth_number ||
+                row.AuthNumber ||
+                null;
+
+              const notes =
+                row.notes ||
+                row.Notes ||
+                null;
+
+              // Required fields
+              if (!patient_name || !payer || !procedure_name) {
+                failedCount++;
+
+                importErrors.push({
+                  patient_name: patient_name || "Unknown",
+                  error: "Missing patient name, payer, or procedure",
+                });
+
+                continue;
+              }
+
+              try {
+                await pool.query(
+                  `INSERT INTO authorizations
+                  (
+                    patient_name,
+                    dob,
+                    payer,
+                    procedure_name,
+                    cpt_code,
+                    status,
+                    priority,
+                    submitted_date,
+                    due_date,
+                    assigned_to,
+                    auth_number,
+                    notes,
+                    user_id,
+                    organization_id
+                  )
+                  VALUES (
+                    $1,$2,$3,$4,$5,$6,$7,
+                    $8,$9,$10,$11,$12,$13,$14
+                  )`,
+                  [
+                    patient_name,
+                    dob,
+                    payer,
+                    procedure_name,
+                    cpt_code,
+                    status,
+                    priority,
+                    submitted_date,
+                    due_date,
+                    assigned_to,
+                    auth_number,
+                    notes,
+                    req.user.userId,
+                    req.user.organizationId,
+                  ]
+                );
+
+                importedCount++;
+              } catch (rowError) {
+                failedCount++;
+
+                importErrors.push({
+                  patient_name,
+                  error: rowError.message,
+                });
+
+                console.error(
+                  `CSV row failed for ${patient_name}:`,
+                  rowError.message
+                );
+              }
             }
 
-            await pool.query(
-              `INSERT INTO authorizations
-              (
-                patient_name,
-                dob,
-                payer,
-                procedure_name,
-                cpt_code,
-                status,
-                priority,
-                submitted_date,
-                due_date,
-                assigned_to,
-                auth_number,
-                notes,
-                user_id
-              )
-              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-              [
-                patient_name,
-                dob,
-                payer,
-                procedure_name,
-                cpt_code,
-                status,
-                priority,
-                submitted_date,
-                due_date,
-                assigned_to,
-                auth_number,
-                notes,
-                req.user.userId,
-              ]
-            );
+            return res.json({
+              message:
+                failedCount === 0
+                  ? "CSV imported successfully"
+                  : "CSV import completed with some errors",
+              importedCount,
+              failedCount,
+              totalRows: results.length,
+              errors: importErrors,
+            });
+          } catch (error) {
+            console.error("CSV import database error:", error);
 
-            importedCount++;
+            if (!res.headersSent) {
+              return res.status(500).json({
+                error: "Failed to import CSV records",
+              });
+            }
           }
+        })
 
-          res.json({
-            message: "CSV imported successfully",
-            importedCount,
-          });
-        } catch (error) {
-          console.error("CSV import database error:", error);
-          res.status(500).json({ error: "Failed to import CSV records" });
-        }
+        .on("error", (error) => {
+          console.error("CSV parsing error:", error);
+
+          if (!res.headersSent) {
+            return res.status(400).json({
+              error: "Unable to read CSV file",
+            });
+          }
+        });
+    } catch (error) {
+      console.error("CSV import error:", error);
+
+      return res.status(500).json({
+        error: "CSV import failed",
       });
-  } catch (error) {
-    console.error("CSV import error:", error);
-    res.status(500).json({ error: "CSV import failed" });
+    }
   }
-});
+);
 
 app.post("/authorizations", authenticateToken, async (req, res) => {
   try {
@@ -329,26 +451,42 @@ app.post("/authorizations", authenticateToken, async (req, res) => {
     } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO authorizations 
-      (patient_name, dob, payer, procedure_name, cpt_code, status, priority, submitted_date, due_date, assigned_to, auth_number, notes, user_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-      RETURNING *`,
-      [
-        patient_name,
-        dob || null,
-        payer,
-        procedure_name,
-        cpt_code,
-        status || "Pending",
-        priority || "Normal",
-        submitted_date || null,
-        due_date || null,
-        assigned_to || null,
-        auth_number || null,
-        notes || null,
-        req.user.userId
-      ]
-    );
+  `INSERT INTO authorizations
+  (
+    patient_name,
+    dob,
+    payer,
+    procedure_name,
+    cpt_code,
+    status,
+    priority,
+    submitted_date,
+    due_date,
+    assigned_to,
+    auth_number,
+    notes,
+    user_id,
+    organization_id
+  )
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+  RETURNING *`,
+  [
+    patient_name,
+    dob || null,
+    payer,
+    procedure_name,
+    cpt_code,
+    status || "Pending",
+    priority || "Normal",
+    submitted_date || null,
+    due_date || null,
+    assigned_to || null,
+    auth_number || null,
+    notes || null,
+    req.user.userId,
+    req.user.organizationId,
+  ]
+);
 
     await pool.query(
   `INSERT INTO audit_logs
@@ -375,62 +513,158 @@ const PORT = process.env.PORT || 3000;
 
 
 app.post("/auth/register", async (req, res) => {
-  try {
-    const { email, password } = req.body;
+  const client = await pool.connect();
 
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+  try {
+    const {
+      organizationName,
+      organizationType,
+      firstName,
+      lastName,
+      email,
+      password,
+    } = req.body;
+
+    // Required registration fields
+    if (!organizationName || !firstName || !lastName || !email || !password) {
+      return res.status(400).json({
+        error:
+          "Organization name, first name, last name, email, and password are required",
+      });
+    }
+
+    // Check for an existing user before creating the organization
+    const existingUser = await client.query(
+      "SELECT id FROM users WHERE LOWER(email) = LOWER($1)",
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({
+        error: "Email already exists",
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const result = await pool.query(
-      `INSERT INTO users (email, password)
- VALUES ($1, $2)
- RETURNING id, email`,
-[email, passwordHash]
+    await client.query("BEGIN");
+
+    // Create the new customer organization
+    const organizationResult = await client.query(
+      `INSERT INTO organizations (
+        organization_name,
+        organization_type,
+        email,
+        subscription_plan,
+        subscription_status
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, organization_name, subscription_plan, subscription_status`,
+      [
+        organizationName,
+        organizationType || null,
+        email,
+        "Starter",
+        "Trial",
+      ]
     );
 
-    const user = result.rows[0];
-    console.log("LOGIN USER FROM DB:", user);
+    const organization = organizationResult.rows[0];
 
+    // The person creating the organization becomes its first administrator
+    const userResult = await client.query(
+      `INSERT INTO users (
+        email,
+        password,
+        first_name,
+        last_name,
+        role,
+        organization_id,
+        active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+      RETURNING
+        id,
+        email,
+        first_name,
+        last_name,
+        role,
+        organization_id,
+        active`,
+      [
+        email,
+        passwordHash,
+        firstName,
+        lastName,
+        "admin",
+        organization.id,
+      ]
+    );
+
+    const user = userResult.rows[0];
+
+    await client.query("COMMIT");
+
+    // Include organization and role in the JWT
     const token = jwt.sign(
-  { userId: user.id, email: user.email },
-  process.env.JWT_SECRET,
-  { expiresIn: "7d" }
-);
-try {
-  await sendGraphEmail({
-    to: user.email,
-    subject: "Welcome to AuthTrack Pro",
-    html: `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>Welcome to AuthTrack Pro</h2>
-        <p>Your account has been created successfully.</p>
-        <p>
-          You can now log in and begin managing prior authorizations,
-          deadlines, statuses, and workflow activity.
-        </p>
-        <p>Thank you for choosing AuthTrack Pro.</p>
-      </div>
-    `,
-  });
-} catch (emailError) {
-  console.error("Welcome email failed:", emailError.message);
-}
-res.json({
-  message: "User registered successfully",
-  user,
-  token
-});
-  } catch (err) {
-    console.error(err);
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        organizationId: user.organization_id,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    if (err.code === "23505") {
-      return res.status(409).json({ error: "Email already exists" });
+    // Welcome email should not undo registration if email delivery fails
+    try {
+      await sendGraphEmail({
+        to: user.email,
+        subject: "Welcome to AuthTrack Pro",
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+            <h2>Welcome to AuthTrack Pro</h2>
+            <p>Hi ${user.first_name},</p>
+            <p>Your organization and administrator account have been created successfully.</p>
+            <p>
+              You can now log in and begin setting up your organization,
+              managing prior authorizations, and inviting your team.
+            </p>
+            <p>Thank you for choosing AuthTrack Pro.</p>
+          </div>
+        `,
+      });
+    } catch (emailError) {
+      console.error("Welcome email failed:", emailError.message);
     }
 
-    res.status(500).json({ error: "Registration failed" });
+    return res.status(201).json({
+      message: "Organization and administrator account created successfully",
+      user,
+      organization,
+      token,
+    });
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Rollback failed:", rollbackError);
+    }
+
+    console.error("Registration error:", err);
+
+    if (err.code === "23505") {
+      return res.status(409).json({
+        error: "An account with this information already exists",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Registration failed",
+    });
+  } finally {
+    client.release();
   }
 });
 
@@ -439,15 +673,28 @@ app.post("/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     const result = await pool.query(
-      "SELECT id, email, password, role FROM users WHERE email = $1",
-      [email]
-    );
+  `SELECT
+    id,
+    email,
+    password,
+    role,
+    organization_id,
+    active
+   FROM users
+   WHERE LOWER(email) = LOWER($1)`,
+  [email]
+);
 
     if (result.rows.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const user = result.rows[0];
+    if (!user.active) {
+  return res.status(403).json({
+    error: "This account is inactive",
+  });
+}
 
     const validPassword = await bcrypt.compare(
       password,
@@ -459,23 +706,25 @@ app.post("/auth/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-{
-  userId: user.id,
-  email: user.email,
-  role: user.role || "user"
-},
-process.env.JWT_SECRET,
-{ expiresIn: "7d" }
+  {
+    userId: user.id,
+    email: user.email,
+    role: user.role || "employee",
+    organizationId: user.organization_id,
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
 );
 
     res.json({
-      token,
-      user: {
-  id: user.id,
-  email: user.email,
-  role: user.role || "user"
-}
-    });
+  token,
+  user: {
+    id: user.id,
+    email: user.email,
+    role: user.role || "employee",
+    organizationId: user.organization_id,
+  }
+});
 
   } catch (err) {
     console.error(err);
@@ -573,7 +822,7 @@ app.put("/authorizations/:id", authenticateToken, async (req, res) => {
            due_date = $8,
            assigned_to = $9,
            notes = $10
-       WHERE id = $11 AND user_id = $12
+       WHERE id = $11 AND organization_id = $12
        RETURNING *`,
     [
       patient_name,
@@ -587,7 +836,7 @@ app.put("/authorizations/:id", authenticateToken, async (req, res) => {
       assigned_to,
       notes,
       id,
-      req.user.userId,
+      req.user.organizationId,
    ]
     );
 
