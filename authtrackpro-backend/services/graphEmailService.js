@@ -19,26 +19,27 @@ function validateConfiguration() {
     }
 }
 
-validateConfiguration();
-
-const msalClient = new ConfidentialClientApplication({
-    auth: {
-        clientId: process.env.MICROSOFT_CLIENT_ID,
-        authority: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID}`,
-        clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
-    },
-});
-
 async function getAccessToken() {
-    const tokenResponse = await msalClient.acquireTokenByClientCredential({
-        scopes: ["https://graph.microsoft.com/.default"],
-    });
+  // Only validate Microsoft Graph when email is actually needed
+  validateConfiguration();
 
-    if (!tokenResponse?.accessToken) {
-        throw new Error("Microsoft Graph did not return an access token.");
-    }
+  const msalClient = new ConfidentialClientApplication({
+    auth: {
+      clientId: process.env.MICROSOFT_CLIENT_ID,
+      authority: `https://login.microsoftonline.com/${process.env.MICROSOFT_TENANT_ID}`,
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET,
+    },
+  });
 
-    return tokenResponse.accessToken;
+  const tokenResponse = await msalClient.acquireTokenByClientCredential({
+    scopes: ["https://graph.microsoft.com/.default"],
+  });
+
+  if (!tokenResponse?.accessToken) {
+    throw new Error("Microsoft Graph did not return an access token.");
+  }
+
+  return tokenResponse.accessToken;
 }
 
 async function sendGraphEmail({
