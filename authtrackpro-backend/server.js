@@ -105,6 +105,13 @@ app.get('/', (req, res) => {
   res.send('AuthTrackPro backend is running');
 });
 
+app.get("/version", (req, res) => {
+  res.json({
+    version: "multi-tenant-v1",
+    organizationSupport: true,
+  });
+});
+
 app.get('/authorizations', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
